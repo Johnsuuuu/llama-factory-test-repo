@@ -15,6 +15,7 @@ def dictify(data: "BaseModel") -> Dict[str, Any]:
 
 def jsonify(data: "BaseModel") -> str:
     try:  # pydantic v2
-        return json.dumps(data.model_dump(exclude_unset=True), ensure_ascii=False)
+        # exclude_unset set to false by Zhenghui to get complete response
+        return json.dumps(data.model_dump(exclude_unset=False), ensure_ascii=False)
     except AttributeError:  # pydantic v1
         return data.json(exclude_unset=True, ensure_ascii=False)

@@ -1,44 +1,38 @@
-# Use the NVIDIA official image with PyTorch 2.3.0
-# https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-24-02.html
-FROM nvcr.io/nvidia/pytorch:24.02-py3
+FROM nvidia/cuda:12.1.0-devel-ubuntu20.04
 
-# Define installation arguments
-ARG INSTALL_BNB=false
-ARG INSTALL_VLLM=false
-ARG INSTALL_DEEPSPEED=false
-ARG PIP_INDEX=https://pypi.org/simple
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_VISIBLE_DEVICES=
+ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6;8.9"
 
-# Set the working directory
+RUN sed -i 's@//.*archive.ubuntu.com@//mirrors.ustc.edu.cn@g' /etc/apt/sources.list \
+&& apt-get update \
+&& apt-get install -y software-properties-common curl vim build-essential \
+&& add-apt-repository -y ppa:deadsnakes/ppa \
+&& apt-get update \
+&& apt-get install -y python3.10 python3.10-dev \
+&& rm -rf /usr/bin/python3 && ln -s /usr/bin/python3.10 /usr/bin/python3 \
+&& apt-get autoclean && rm -rf /var/lib/apt/lists/* \
+&& curl https://bootstrap.pypa.io/get-pip.py --output get-pip.py \
+&& python3 get-pip.py \
+&& rm get-pip.py \
+&& ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+
 WORKDIR /app
 
-# Install the requirements
 COPY requirements.txt /app/
-RUN pip config set global.index-url $PIP_INDEX
-RUN python -m pip install --upgrade pip
-RUN python -m pip install -r requirements.txt
 
-# Copy the rest of the application into the image
-COPY . /app/
+RUN pip3 install --upgrade pip \
+&& pip3 install --upgrade setuptools \
+&& pip3 install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# Install the LLaMA Factory
-RUN EXTRA_PACKAGES="metrics"; \
-    if [ "$INSTALL_BNB" = "true" ]; then \
-        EXTRA_PACKAGES="${EXTRA_PACKAGES},bitsandbytes"; \
-    fi; \
-    if [ "$INSTALL_VLLM" = "true" ]; then \
-        EXTRA_PACKAGES="${EXTRA_PACKAGES},vllm"; \
-    fi; \
-    if [ "$INSTALL_DEEPSPEED" = "true" ]; then \
-        EXTRA_PACKAGES="${EXTRA_PACKAGES},deepspeed"; \
-    fi; \
-    pip install -e .[$EXTRA_PACKAGES] && \
-    pip uninstall -y transformer-engine
+COPY . /app
 
-# Set up volumes
-VOLUME [ "/root/.cache/huggingface/", "/app/data", "/app/output" ]
+RUN pip3 install --no-cache-dir -e .[metrics,qwen] -i https://pypi.tuna.tsinghua.edu.cn/simple \
+&& cd AutoGPTQ && pip3 install . -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# Expose port 7860 for the LLaMA Board
-EXPOSE 7860
+RUN chmod +x /app/server.sh
 
-# Expose port 8000 for the API service
-EXPOSE 8000
+ENV API_PORT=8000
+
+CMD ["./server.sh"]

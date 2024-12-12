@@ -1,5 +1,7 @@
 import importlib.metadata
 import importlib.util
+# added by Zhenghui to adapt newer version of vllm
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from packaging import version
@@ -74,3 +76,14 @@ def is_uvicorn_available():
 
 def is_vllm_available():
     return _is_package_available("vllm")
+
+
+# added by Zhenghui to adapt newer version of vllm
+@lru_cache
+def is_vllm_version_greater_than_0_5():
+    return _get_package_version("vllm") >= version.parse("0.5.0")
+
+
+@lru_cache
+def is_vllm_version_greater_than_0_5_1():
+    return _get_package_version("vllm") >= version.parse("0.5.1")

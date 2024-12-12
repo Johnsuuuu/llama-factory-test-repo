@@ -23,25 +23,20 @@ from .protocol import (
     ScoreEvaluationResponse,
 )
 
-
 if is_fastapi_available():
     from fastapi import HTTPException, status
-
 
 if is_pillow_available():
     from PIL import Image
 
-
 if is_requests_available():
     import requests
-
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from ..chat import ChatModel
     from .protocol import ChatCompletionRequest, ScoreEvaluationRequest
-
 
 logger = get_logger(__name__)
 ROLE_MAPPING = {
@@ -54,7 +49,7 @@ ROLE_MAPPING = {
 
 
 def _process_request(
-    request: "ChatCompletionRequest",
+        request: "ChatCompletionRequest",
 ) -> Tuple[List[Dict[str, str]], Optional[str], Optional[str], Optional["NDArray"]]:
     logger.info("==== request ====\n{}".format(json.dumps(dictify(request), indent=2, ensure_ascii=False)))
 
@@ -112,20 +107,23 @@ def _process_request(
     return input_messages, system, tools, image
 
 
+# modified by Zhenghui: added usage as parameter
 def _create_stream_chat_completion_chunk(
-    completion_id: str,
-    model: str,
-    delta: "ChatCompletionMessage",
-    index: Optional[int] = 0,
-    finish_reason: Optional["Finish"] = None,
+        completion_id: str,
+        model: str,
+        delta: "ChatCompletionMessage",
+        index: Optional[int] = 0,
+        finish_reason: Optional["Finish"] = None,
+        usage: Optional["ChatCompletionResponseUsage"] = None,
 ) -> str:
     choice_data = ChatCompletionStreamResponseChoice(index=index, delta=delta, finish_reason=finish_reason)
-    chunk = ChatCompletionStreamResponse(id=completion_id, model=model, choices=[choice_data])
+    # modified by Zhenghui: added usage as parameter
+    chunk = ChatCompletionStreamResponse(id=completion_id, model=model, choices=[choice_data], usage=usage)
     return jsonify(chunk)
 
 
 async def create_chat_completion_response(
-    request: "ChatCompletionRequest", chat_model: "ChatModel"
+        request: "ChatCompletionRequest", chat_model: "ChatModel"
 ) -> "ChatCompletionResponse":
     completion_id = "chatcmpl-{}".format(uuid.uuid4().hex)
     input_messages, system, tools, image = _process_request(request)
@@ -174,7 +172,7 @@ async def create_chat_completion_response(
 
 
 async def create_stream_chat_completion_response(
-    request: "ChatCompletionRequest", chat_model: "ChatModel"
+        request: "ChatCompletionRequest", chat_model: "ChatModel"
 ) -> AsyncGenerator[str, None]:
     completion_id = "chatcmpl-{}".format(uuid.uuid4().hex)
     input_messages, system, tools, image = _process_request(request)
@@ -184,33 +182,63 @@ async def create_stream_chat_completion_response(
     if request.n > 1:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot stream multiple responses.")
 
+    # added by Zhenghui start
+    prompt_length = 0
+    paired_messages = input_messages + [{"role": "assistant", "content": ""}]
+    prompt_ids, _ = chat_model.engine.template.encode_oneturn(
+        tokenizer=chat_model.engine.tokenizer, messages=paired_messages, system=system, tools=tools
+    )
+    prompt_length = len(prompt_ids)
+    response = ""
+    # added by Zhenghui end
+
     yield _create_stream_chat_completion_chunk(
         completion_id=completion_id, model=request.model, delta=ChatCompletionMessage(role=Role.ASSISTANT, content="")
     )
     async for new_token in chat_model.astream_chat(
-        input_messages,
-        system,
-        tools,
-        image,
-        do_sample=request.do_sample,
-        temperature=request.temperature,
-        top_p=request.top_p,
-        max_new_tokens=request.max_tokens,
-        stop=request.stop,
+            input_messages,
+            system,
+            tools,
+            image,
+            do_sample=request.do_sample,
+            temperature=request.temperature,
+            top_p=request.top_p,
+            max_new_tokens=request.max_tokens,
+            stop=request.stop,
     ):
         if len(new_token) != 0:
+            # added by Zhenghui start
+            response += new_token
+            # added by Zhenghui end
+
             yield _create_stream_chat_completion_chunk(
                 completion_id=completion_id, model=request.model, delta=ChatCompletionMessage(content=new_token)
             )
 
-    yield _create_stream_chat_completion_chunk(
-        completion_id=completion_id, model=request.model, delta=ChatCompletionMessage(), finish_reason=Finish.STOP
+    # added by Zhenghui start
+    response_length = 0
+    response_ids = chat_model.engine.template._convert_elements_to_ids(
+        tokenizer=chat_model.engine.tokenizer, elements=[response]
     )
+    response_length = len(response_ids) + 1
+    usage = ChatCompletionResponseUsage(
+        prompt_tokens=prompt_length,
+        completion_tokens=response_length,
+        total_tokens=prompt_length + response_length,
+    )
+    # added by Zhenghui end
+
+    # modified by Zhenghui: added usage as parameter
+    yield _create_stream_chat_completion_chunk(
+        completion_id=completion_id, model=request.model, delta=ChatCompletionMessage(), finish_reason=Finish.STOP,
+        usage=usage
+    )
+
     yield "[DONE]"
 
 
 async def create_score_evaluation_response(
-    request: "ScoreEvaluationRequest", chat_model: "ChatModel"
+        request: "ScoreEvaluationRequest", chat_model: "ChatModel"
 ) -> "ScoreEvaluationResponse":
     if len(request.messages) == 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request")

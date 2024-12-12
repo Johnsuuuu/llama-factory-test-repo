@@ -75,7 +75,8 @@ class ChatMessage(BaseModel):
 class ChatCompletionMessage(BaseModel):
     role: Optional[Role] = None
     content: Optional[str] = None
-    tool_calls: Optional[List[FunctionCall]] = None
+    # modified by Zhenghui so no tool_calls in api response
+    # tool_calls: Optional[List[FunctionCall]] = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -124,6 +125,8 @@ class ChatCompletionStreamResponse(BaseModel):
     created: int = Field(default_factory=lambda: int(time.time()))
     model: str
     choices: List[ChatCompletionStreamResponseChoice]
+    # added by Zhenghui
+    usage: Optional[ChatCompletionResponseUsage] = None
 
 
 class ScoreEvaluationRequest(BaseModel):
